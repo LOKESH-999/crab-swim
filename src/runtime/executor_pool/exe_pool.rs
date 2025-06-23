@@ -156,19 +156,28 @@ impl ExecutorPool {
         }
     }
 
-    pub fn spawn(&self) {
-        todo!()
+    pub fn spawn<F>(&self,fut:F)
+    where F:Future<Output = ()> + Send + 'static {
+        let boxed_fut = UnsafeCell::new(Box::pin(fut));
+        let id = self.last_spawn_id.fetch_add(1, AcqRel);
+        let task = Arc::new(Task::new(id, boxed_fut));
+        self.push(task);
     }
 
-    pub fn push(&self, task: Arc<Task>) {
-        let exe_idx = self
+    #[inline(always)]
+    fn forward_idx(&self)->usize{
+        self
             .curr_exe
             .fetch_update(Release, Acquire, |prev| {
                 let is_less = -((prev < self.n_executors) as isize);
                 let next_idx = prev & is_less as usize;
                 Some(next_idx)
             })
-            .unwrap();
+            .unwrap()
+    }
+
+    pub fn push(&self, task: Arc<Task>) {
+        let exe_idx = self.forward_idx();
         let exe = unsafe { (&*self.executors[exe_idx].get()).assume_init_ref() };
         exe.push(task);
 
