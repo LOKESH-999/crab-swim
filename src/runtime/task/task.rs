@@ -26,7 +26,7 @@ pub(crate) enum TaskState {
 
 pub(crate) struct Task {
     pub(crate) id: usize,
-    pub(crate) fut: UnsafeCell<Pin<Box<dyn Future<Output = ()> + Send>>>,
+    pub(crate) fut: UnsafeCell<Pin<Box<dyn Future<Output = ()> + Send + 'static>>>,
     pub(crate) state: AtomicU8,
 }
 
@@ -40,6 +40,10 @@ impl Task {
             fut,
             state: AtomicU8::new(TaskState::Registered as u8),
         }
+    }
+
+    pub fn id(&self) -> usize {
+        self.id
     }
 
     pub(crate) fn set_state(self: &Arc<Self>, state: TaskState) {

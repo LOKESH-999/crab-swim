@@ -1,7 +1,12 @@
 use std::{sync::Arc, thread};
 
 use crate::runtime::{
-    executor_pool::exe_pool::ExecutorPool, reactors::Reactor, task::task::{Task,TaskState::{Completed,Registered,Processing,Waiting}},
+    executor_pool::exe_pool::ExecutorPool,
+    reactors::Reactor,
+    task::task::{
+        Task,
+        TaskState::{Completed, Processing, Registered, Waiting},
+    },
     utils::backoff::LocalBackoff,
 };
 use crossbeam::queue::SegQueue;
@@ -35,7 +40,7 @@ impl Executor {
             let task = self.queue.pop();
             match task {
                 Some(t) => {
-                    if t.cas(Registered, Processing).is_ok(){
+                    if t.cas(Registered, Processing).is_ok() {
                         self.process_task(t);
                     }
                 }
@@ -58,13 +63,13 @@ impl Executor {
     }
 
     #[inline(always)]
-    fn process_task(&self,task:Arc<Task>){
+    fn process_task(&self, task: Arc<Task>) {
         todo!()
     }
 
     #[inline(always)]
-    pub fn push(&self, data: Arc<Task>) {
-        self.queue.push(data);
+    pub fn push(&self, task: Arc<Task>) {
+        self.queue.push(task);
     }
 }
 unsafe impl Send for Executor {}

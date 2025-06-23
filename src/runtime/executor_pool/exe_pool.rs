@@ -1,13 +1,26 @@
-use lazy_static::lazy_static;
-use std::{
-    alloc::{alloc, Layout}, cell::UnsafeCell, mem::MaybeUninit, num::NonZero, ops::{Deref, DerefMut}, ptr::{null_mut, slice_from_raw_parts_mut}, sync::atomic::{
-        fence, AtomicU64, AtomicUsize, Ordering::{Acquire, Release}
-    }, thread::{self, Thread}
-};
 use crate::runtime::{
     executor_pool::executor::Executor,
     reactors::Reactor,
+    task::task::Task,
     utils::{backoff::LocalBackoff, cache_padded::CachePadded},
+};
+use lazy_static::lazy_static;
+use std::{
+    alloc::{Layout, alloc},
+    cell::UnsafeCell,
+    mem::MaybeUninit,
+    num::NonZero,
+    ops::{Deref, DerefMut},
+    ptr::{null_mut, slice_from_raw_parts_mut},
+    sync::{
+        Arc,
+        atomic::{
+            AtomicU64, AtomicUsize,
+            Ordering::{AcqRel, Acquire, Release},
+            fence,
+        },
+    },
+    thread::{self, Thread},
 };
 
 const DEFAULT_NO_OF_EXE: usize = 8;
@@ -20,16 +33,16 @@ pub(crate) struct Wrapper {
     executor_pool: &'static ExecutorPool,
 }
 impl Wrapper {
-    pub fn new()->Self{
+    pub fn new() -> Self {
         let exe_pool = Wrapper {
-            executor_pool: ExecutorPool::new()
+            executor_pool: ExecutorPool::new(),
         };
         exe_pool.start();
         exe_pool
     }
 }
 
-impl Deref for Wrapper{
+impl Deref for Wrapper {
     type Target = ExecutorPool;
     fn deref(&self) -> &Self::Target {
         self.executor_pool
@@ -46,6 +59,7 @@ fn get_no_of_cpus() -> usize {
 pub struct ExecutorPool {
     pub(crate) calibration_pending: CachePadded<AtomicUsize>,
     pub(crate) last_spawn_id: CachePadded<AtomicUsize>,
+    pub(crate) active_task: CachePadded<AtomicUsize>,
     pub(crate) exe_mask: CachePadded<AtomicU64>,
     pub(crate) curr_exe: CachePadded<AtomicUsize>,
     pub(crate) n_executors: usize,
@@ -62,6 +76,7 @@ impl ExecutorPool {
         let curr_exe = CachePadded::new(AtomicUsize::new(0));
         let exe_mask = CachePadded::new(AtomicU64::new(u64::MAX >> (64 - n_executors)));
         let (exe_layout, th_layout) = Self::layout(n_executors);
+        let active_task = CachePadded::new(AtomicUsize::new(0));
         let executors = unsafe {
             let ptr = alloc(exe_layout) as *mut UnsafeCell<MaybeUninit<Executor>>;
             if ptr != null_mut() {
@@ -94,6 +109,7 @@ impl ExecutorPool {
             &*Box::into_raw(Box::new(Self {
                 calibration_pending,
                 last_spawn_id,
+                active_task,
                 exe_mask,
                 curr_exe,
                 n_executors,
@@ -142,6 +158,26 @@ impl ExecutorPool {
 
     pub fn spawn(&self) {
         todo!()
+    }
+
+    pub fn push(&self, task: Arc<Task>) {
+        let exe_idx = self
+            .curr_exe
+            .fetch_update(Release, Acquire, |prev| {
+                let is_less = -((prev < self.n_executors) as isize);
+                let next_idx = prev & is_less as usize;
+                Some(next_idx)
+            })
+            .unwrap();
+        let exe = unsafe { (&*self.executors[exe_idx].get()).assume_init_ref() };
+        exe.push(task);
+
+        let mask = 1 << exe_idx;
+        let prev_mask = self.exe_mask.fetch_or(mask, AcqRel);
+        if prev_mask & mask == 0 {
+            // If we park the thread when it has no job here we need to unpark
+            // self.thread_handlers
+        }
     }
 }
 unsafe impl Sync for ExecutorPool {}
