@@ -3,7 +3,7 @@ use std::{
     task::{Context, Poll},
 };
 
-struct Yielder {
+pub(super) struct Yielder {
     is_yielded: bool,
 }
 impl Yielder {
@@ -17,8 +17,13 @@ impl Future for Yielder {
         if self.is_yielded {
             Poll::Ready(())
         } else {
+            // If pending the executor will automatically insert into Queue Again
             self.as_mut().get_mut().is_yielded = true;
             Poll::Pending
         }
     }
+}
+pub async fn yield_now(){
+    let yielder = Yielder::new();
+    yielder.await
 }
