@@ -50,7 +50,7 @@ impl Task {
         unsafe { std::mem::transmute(self.state.load(Acquire)) }
     }
 
-    pub fn cas(self: &Arc<Self>, current: TaskState, new: TaskState) -> Result<u8, u8> {
+    pub(crate) fn cas(self: &Arc<Self>, current: TaskState, new: TaskState) -> Result<u8, u8> {
         self.state
             .compare_exchange(current as u8, new as u8, AcqRel, Acquire)
     }
