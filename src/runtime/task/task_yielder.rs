@@ -23,7 +23,7 @@ impl Future for Yielder {
         }
     }
 }
-pub async fn yield_now(){
+pub async fn yield_now() {
     let yielder = Yielder::new();
     yielder.await
 }

@@ -10,8 +10,7 @@ use std::{
     task::{RawWaker, RawWakerVTable},
 };
 
-// }
-type WakerData = (Arc<Task>, &'static ExecutorPool);
+pub(crate) type WakerData = (Arc<Task>, &'static ExecutorPool);
 
 static VTABLE: RawWakerVTable = RawWakerVTable::new(clone, wake, wake_by_ref, drop);
 

@@ -10,7 +10,7 @@ use std::{
     cell::UnsafeCell,
     mem::MaybeUninit,
     num::NonZero,
-    ops::{Deref, DerefMut},
+    ops::Deref,
     ptr::{null_mut, slice_from_raw_parts_mut},
     sync::{
         Arc,
@@ -63,6 +63,7 @@ pub struct ExecutorPool {
     pub(crate) exe_mask: CachePadded<AtomicU64>,
     pub(crate) curr_exe: CachePadded<AtomicUsize>,
     pub(crate) n_executors: usize,
+    pub(crate) reactor: &'static Reactor,
     pub(crate) executors: &'static mut [UnsafeCell<MaybeUninit<Executor>>],
     pub(crate) thread_handlers: &'static mut [UnsafeCell<MaybeUninit<Thread>>],
 }
@@ -105,6 +106,7 @@ impl ExecutorPool {
                     .write(UnsafeCell::new(MaybeUninit::uninit()));
             }
         }
+        let reactor = unsafe { &*Box::into_raw(Box::new(reactor)) };
         let exe_pool = unsafe {
             &*Box::into_raw(Box::new(Self {
                 calibration_pending,
@@ -112,14 +114,14 @@ impl ExecutorPool {
                 active_task,
                 exe_mask,
                 curr_exe,
+                reactor,
                 n_executors,
                 executors,
                 thread_handlers,
             }))
         };
-        let reactor = unsafe { &*Box::into_raw(Box::new(reactor)) };
         for idx in 0..n_executors {
-            let exe = Executor::new(idx, &exe_pool, &reactor);
+            let exe = Executor::new(idx, &exe_pool);
             let exe_deref = unsafe { &mut *exe_pool.executors[idx].get() };
             exe_deref.write(exe);
         }
@@ -156,8 +158,10 @@ impl ExecutorPool {
         }
     }
 
-    pub fn spawn<F>(&self,fut:F)
-    where F:Future<Output = ()> + Send + 'static {
+    pub fn spawn<F>(&self, fut: F)
+    where
+        F: Future<Output = ()> + Send + 'static,
+    {
         let boxed_fut = UnsafeCell::new(Box::pin(fut));
         let id = self.last_spawn_id.fetch_add(1, AcqRel);
         let task = Arc::new(Task::new(id, boxed_fut));
@@ -165,9 +169,8 @@ impl ExecutorPool {
     }
 
     #[inline(always)]
-    fn forward_idx(&self)->usize{
-        self
-            .curr_exe
+    fn forward_idx(&self) -> usize {
+        self.curr_exe
             .fetch_update(Release, Acquire, |prev| {
                 let is_less = -((prev < self.n_executors) as isize);
                 let next_idx = prev & is_less as usize;

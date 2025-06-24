@@ -4,7 +4,7 @@ use std::{
     sync::{
         Arc,
         atomic::{
-            AtomicU8,
+            AtomicBool, AtomicU8,
             Ordering::{AcqRel, Acquire, Release},
         },
     },
@@ -28,6 +28,8 @@ pub(crate) struct Task {
     pub(crate) id: usize,
     pub(crate) fut: UnsafeCell<Pin<Box<dyn Future<Output = ()> + Send + 'static>>>,
     pub(crate) state: AtomicU8,
+    #[cfg(panic = "unwind")]
+    pub(crate) flag: AtomicBool,
 }
 
 impl Task {
@@ -39,6 +41,8 @@ impl Task {
             id,
             fut,
             state: AtomicU8::new(TaskState::Registered as u8),
+            #[cfg(panic = "unwind")]
+            flag: AtomicBool::new(false),
         }
     }
 
@@ -46,14 +50,17 @@ impl Task {
         self.id
     }
 
+    #[inline(always)]
     pub(crate) fn set_state(self: &Arc<Self>, state: TaskState) {
         self.state.store(state as u8, Release);
     }
 
+    #[inline(always)]
     pub(crate) fn get_state(self: &Arc<Self>) -> TaskState {
         unsafe { std::mem::transmute(self.state.load(Acquire)) }
     }
 
+    #[inline(always)]
     pub(crate) fn cas(self: &Arc<Self>, current: TaskState, new: TaskState) -> Result<u8, u8> {
         self.state
             .compare_exchange(current as u8, new as u8, AcqRel, Acquire)
@@ -62,5 +69,11 @@ impl Task {
     pub fn poll(self: &Arc<Self>, ctx: &mut Context<'_>) -> Poll<()> {
         let fut = unsafe { &mut *self.fut.get() };
         fut.as_mut().poll(ctx)
+    }
+
+    #[inline(always)]
+    #[cfg(panic = "unwind")]
+    fn is_pannicked(&self) -> bool {
+        self.flag.load(Acquire)
     }
 }
