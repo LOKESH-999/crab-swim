@@ -166,6 +166,7 @@ impl ExecutorPool {
         let id = self.last_spawn_id.fetch_add(1, AcqRel);
         let task = Arc::new(Task::new(id, boxed_fut));
         self.push(task);
+        println!("SPAWNED ID[{}]", id);
     }
 
     #[inline(always)]

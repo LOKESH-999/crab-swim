@@ -48,6 +48,7 @@ impl Executor {
             let task = self.queue.pop();
             match task {
                 Some(t) => {
+                    println!("TASK ID:{}", t.id);
                     if t.cas(Registered, Processing).is_ok() {
                         self.process_task(t);
                     }
@@ -74,6 +75,7 @@ impl Executor {
                         };
                         if let Some(task) = task {
                             if task.cas(Registered, Processing).is_ok() {
+                                println!("TASK_ID:{}", task.id);
                                 self.process_task(task);
                             }
                         }
@@ -90,13 +92,18 @@ impl Executor {
         let raw_waker = waker::create_raw_waker(waker_data);
         let waker = unsafe { Waker::from_raw(raw_waker) };
         let mut ctx = Context::from_waker(&waker);
+        // Setting Processing flag in the Task State so that we can avoid double polling
+        task.set_processing_flag();
         #[cfg(not(panic = "unwind"))]
         {
             match task.poll(&mut ctx) {
                 Ready(_) => {
                     task.set_state(Completed);
+                    // TODO Join Handler
                 }
                 Pending => {
+                    // We unset the processing flag So that the CAS works
+                    task.unset_processing_flag();
                     if task.cas(Processing, Registered).is_ok() {
                         self.exe_pool.push(task);
                     }
@@ -109,8 +116,11 @@ impl Executor {
             match poll_result {
                 Ok(Ready(_)) => {
                     task.set_state(Completed);
+                    // TODO Join Handler
                 }
                 Ok(Pending) => {
+                    // We unset the processing flag So that the CAS works
+                    task.unset_processing_flag();
                     if task.cas(Processing, Registered).is_ok() {
                         self.exe_pool.push(task);
                     }

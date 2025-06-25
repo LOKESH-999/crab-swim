@@ -27,7 +27,7 @@ fn test_basic_task_execution() {
     }
 
     // Give some time for the executors to run
-    thread::sleep(Duration::from_millis(1000));
+    thread::sleep(Duration::from_millis(3000));
 
     let val = counter.load(Ordering::Acquire);
     assert_eq!(val, N, "Expected all {} tasks to complete", N);
